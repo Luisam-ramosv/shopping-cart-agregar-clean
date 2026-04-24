@@ -22,22 +22,29 @@ import javafx.scene.layout.VBox;
 import java.util.List;
 
 public class MainView {
+    private static final int CLIENTE_ID = 1; 
     private ShoppingCartApp shoppingCartApp;
-
     private VBox catalogBox;
     private VBox cartBox;
     private Label totalLabel;
 
     public MainView() {
-        ProductRepository productRepository = new InMemoryProductRepository();
-        CartRepository cartRepository = new InMemoryCartRepository(productRepository);
-        AgregarProductoAlCarritoUseCase agregarProductoAlCarritoUseCase =
-                new AgregarProductoAlCarritoUseCase(productRepository, cartRepository);
+        ProductoRepository productoRepository = new InMemoryProductoRepository();
+        CarritoRepository carritoRepository = new InMemoryCarritoRepository();
+        ClienteRepository clienteRepository = new InMemoryClienteRepository();
+        CompraRepository compraRepository = new InMemoryCompraRepository();
+
+        AgregarProductoAlCarritoUseCase agregarProductoUseCase =
+                new AgregarProductoAlCarritoUseCase(productoRepository, carritoRepository);
+
+        ConfirmarCompraUseCase confirmarCompraUseCase =
+                new ConfirmarCompraUseCase(carritoRepository, productoRepository, compraRepository);
 
         shoppingCartApp = new ShoppingCartApp(
-                productRepository,
-                cartRepository,
-                agregarProductoAlCarritoUseCase
+                productoRepository,
+                carritoRepository,
+                agregarProductoUseCase,
+                confirmarCompraUseCase
         );
 
         catalogBox = new VBox(10);
@@ -81,7 +88,7 @@ public class MainView {
         title.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
 
         Button confirmButton = new Button("Confirmar compra");
-        confirmButton.setOnAction(event -> showMessage("Por implementar"));
+        confirmButton.setOnAction(event -> handleConfirmarCompra());
 
         VBox panel = new VBox(10);
         panel.getChildren().addAll(title, cartBox, totalLabel, confirmButton);
@@ -90,38 +97,68 @@ public class MainView {
         return panel;
     }
 
+    private void handleConfirmarCompra() {
+        ConfirmarCompraResult result = shoppingCartApp.confirmarCompra(CLIENTE_ID);
+
+        if (!result.isSuccess()) {
+            showError(result.getErrorMessage());
+            return;
+        }
+
+        Compra compra = result.getCompra();
+        String resumen = buildOrderSummary(compra);
+        showMessage(resumen);
+
+        refreshCatalog();
+        refreshCart();
+    }
+
+    private String buildOrderSummary(Compra compra) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("¡Compra confirmada! Orden #").append(compra.getId()).append("\n\n");
+
+        List<ItemCarrito> items = compra.getItems();
+        int i;
+        for (i = 0; i < items.size(); i++) {
+            ItemCarrito item = items.get(i);
+            sb.append("- ").append(item.getProducto().getName())
+              .append(" x").append(item.getCantidad())
+              .append("  $").append(item.calcularSubtotal()).append("\n");
+        }
+
+        sb.append("\nTotal pagado: $ ").append(compra.getTotal());
+        return sb.toString();
+    }
+
     private void refreshCatalog() {
         catalogBox.getChildren().clear();
 
-        List<Product> products = shoppingCartApp.getCatalogProducts();
+        List<Producto> products = shoppingCartApp.getCatalogProducts();
         int i;
 
         for (i = 0; i < products.size(); i++) {
-            Product product = products.get(i);
+            Producto producto = products.get(i);
             HBox row = new HBox(10);
 
-            Label nameLabel = new Label(product.getName());
-            Label priceLabel = new Label("$ " + product.getPrice());
-            Label stockLabel = new Label("Disponible: " + product.getAvailableQuantity());
+            Label nameLabel = new Label(producto.getName());
+            Label priceLabel = new Label("$ " + producto.getPrice());
+            Label stockLabel = new Label("Disponible: " + producto.getStock());
             Button addButton = new Button("Agregar");
 
             Region spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);
 
             addButton.setOnAction(event -> {
-                String message = shoppingCartApp.addProductToCart(product.getId());
-
+                String message = shoppingCartApp.addProductToCart(CLIENTE_ID, producto.getId());
                 if (!message.equals("")) {
                     showError(message);
                 }
-
                 refreshCatalog();
                 refreshCart();
             });
 
             row.getChildren().addAll(nameLabel, priceLabel, stockLabel, spacer, addButton);
             row.setStyle("-fx-padding: 5; -fx-border-color: #DDDDDD;");
-
             catalogBox.getChildren().add(row);
         }
     }
@@ -129,24 +166,23 @@ public class MainView {
     private void refreshCart() {
         cartBox.getChildren().clear();
 
-        List<CartItem> items = shoppingCartApp.getCartItems();
+        List<ItemCarrito> items = shoppingCartApp.getCartItems(CLIENTE_ID);
         int i;
 
         for (i = 0; i < items.size(); i++) {
-            CartItem item = items.get(i);
+            ItemCarrito item = items.get(i);
             HBox row = new HBox(10);
 
-            Label nameLabel = new Label(item.getProduct().getName());
-            Label quantityLabel = new Label("Cantidad: " + item.getQuantity());
-            Label subtotalLabel = new Label("Subtotal: $ " + item.getSubtotal());
+            Label nameLabel = new Label(item.getProducto().getName());
+            Label quantityLabel = new Label("Cantidad: " + item.getCantidad());
+            Label subtotalLabel = new Label("Subtotal: $ " + item.calcularSubtotal());
 
             row.getChildren().addAll(nameLabel, quantityLabel, subtotalLabel);
             row.setStyle("-fx-padding: 5; -fx-border-color: #DDDDDD;");
-
             cartBox.getChildren().add(row);
         }
 
-        totalLabel.setText("Total: $ " + shoppingCartApp.getCartTotal());
+        totalLabel.setText("Total: $ " + shoppingCartApp.getCartTotal(CLIENTE_ID));
     }
 
     private void showMessage(String message) {
